@@ -28,6 +28,11 @@ logging:
     org.springframework.web: INFO
     com.mercadolibre.proxy: INFO
 
+spring:
+  http:
+    codecs:
+      max-in-memory-size: 2MB
+
 ---
 spring:
   config:

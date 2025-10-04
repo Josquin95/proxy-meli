@@ -3,6 +3,7 @@ package com.mercadolibre.proxy.service;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.io.buffer.DataBuffer;
 import org.springframework.core.io.buffer.DataBufferUtils;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
@@ -18,10 +19,16 @@ import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 
+import static java.util.Objects.requireNonNullElse;
+
 @Service
 public class ProxyService {
 
     private static final Logger log = LoggerFactory.getLogger(ProxyService.class);
+
+    private static final String RXI = "X-Request-Id";
+
+    private static final byte[] EMPTY_BYTES = new byte[0];
 
     private final WebClient webClient;
 
@@ -33,78 +40,111 @@ public class ProxyService {
     }
 
     public Mono<ResponseEntity<byte[]>> forwardRequest(ServerWebExchange exchange) {
-        String traceId = UUID.randomUUID().toString().substring(0, 8);
-        final long t0 = System.nanoTime();
+        RequestContext ctx = createContext(exchange);
 
-        String rawPath = exchange.getRequest().getURI().getRawPath();
+        HttpHeaders outbound = buildOutboundHeaders(ctx);
+        Mono<byte[]> bodyMono = readBody(exchange);
+
+        return bodyMono
+                .flatMap(body -> sendToBackend(ctx, outbound, body))
+                .map(backend -> toClientResponse(ctx, backend))
+                .doOnError(e -> log.error("[{}:{}] !! Transport error: {}", ctx.traceId(), ctx.reqId(), e.toString(), e));
+    }
+
+    private RequestContext createContext(ServerWebExchange exchange) {
+        String traceId = UUID.randomUUID().toString().substring(0, 8);
+
+        String rawPath  = exchange.getRequest().getURI().getRawPath();
         String rawQuery = exchange.getRequest().getURI().getRawQuery();
         String targetUrl = backendBaseUrl + rawPath + (rawQuery != null ? "?" + rawQuery : "");
 
         HttpMethod method = Objects.requireNonNull(exchange.getRequest().getMethod());
         HttpHeaders inHeaders = exchange.getRequest().getHeaders();
 
-        log.info("[{}] -> {} {}", traceId, method, targetUrl);
+        String reqId = inHeaders.getFirst(RXI);
+        if (reqId == null || reqId.isBlank()) reqId = UUID.randomUUID().toString();
 
-        HttpHeaders outbound = new HttpHeaders();
-        copyIfPresent(inHeaders, outbound, HttpHeaders.ACCEPT);
-        copyIfPresent(inHeaders, outbound, HttpHeaders.ACCEPT_LANGUAGE);
-        copyIfPresent(inHeaders, outbound, HttpHeaders.ACCEPT_CHARSET);
-        copyIfPresent(inHeaders, outbound, HttpHeaders.CONTENT_TYPE);
-        copyIfPresent(inHeaders, outbound, HttpHeaders.AUTHORIZATION);
-        copyIfPresent(inHeaders, outbound, "User-Agent");
+        long startNanos = System.nanoTime();
 
-        if (!outbound.containsKey(HttpHeaders.ACCEPT)) {
-            outbound.set(HttpHeaders.ACCEPT, "application/json");
+        // Log de entrada con headers saneados
+        log.info("[{}:{}] -> {} {} headers={}", traceId, reqId, method, targetUrl, sanitizeHeaders(inHeaders));
+
+        return new RequestContext(traceId, reqId, method, targetUrl, inHeaders, startNanos);
+    }
+
+    private HttpHeaders buildOutboundHeaders(RequestContext ctx) {
+        HttpHeaders out = new HttpHeaders();
+        copyIfPresent(ctx.inHeaders(), out, HttpHeaders.ACCEPT);
+        copyIfPresent(ctx.inHeaders(), out, HttpHeaders.ACCEPT_LANGUAGE);
+        copyIfPresent(ctx.inHeaders(), out, HttpHeaders.ACCEPT_CHARSET);
+        copyIfPresent(ctx.inHeaders(), out, HttpHeaders.CONTENT_TYPE);
+        copyIfPresent(ctx.inHeaders(), out, HttpHeaders.AUTHORIZATION);
+        copyIfPresent(ctx.inHeaders(), out, "User-Agent");
+        if (!out.containsKey(HttpHeaders.ACCEPT)) {
+            out.set(HttpHeaders.ACCEPT, "application/json");
         }
+        out.set(RXI, ctx.reqId()); // Propagar request-id
+        return out;
+    }
 
-        Mono<byte[]> bodyMono = DataBufferUtils.join(exchange.getRequest().getBody())
-                .map(dataBuffer -> {
+    private Mono<byte[]> readBody(ServerWebExchange exchange) {
+        return DataBufferUtils.join(exchange.getRequest().getBody())
+                .map((DataBuffer db) -> {
                     try {
-                        byte[] bytes = new byte[dataBuffer.readableByteCount()];
-                        dataBuffer.read(bytes);
+                        byte[] bytes = new byte[db.readableByteCount()];
+                        db.read(bytes);
                         return bytes;
                     } finally {
-                        DataBufferUtils.release(dataBuffer);
+                        DataBufferUtils.release(db);
                     }
                 })
                 .defaultIfEmpty(new byte[0]);
+    }
 
-        return bodyMono.flatMap(body ->
-                webClient.method(method)
-                        .uri(URI.create(targetUrl))
-                        .headers(h -> h.addAll(outbound))
-                        .body((requiresBody(method) && body.length > 0)
-                                ? BodyInserters.fromValue(body)
-                                : BodyInserters.empty())
-                        .exchangeToMono(resp ->
-                                resp.toEntity(byte[].class) // NO lanza excepción en 4xx/5xx
-                                        .map(backend -> {
-                                            HttpHeaders out = new HttpHeaders();
-                                            backend.getHeaders().forEach(out::addAll);
-                                            removeHopByHop(out);
+    private Mono<ResponseEntity<byte[]>> sendToBackend(RequestContext ctx, HttpHeaders outbound, byte[] body) {
+        return webClient.method(ctx.method())
+                .uri(URI.create(ctx.targetUrl()))
+                .headers(h -> h.addAll(outbound))
+                .body((requiresBody(ctx.method()) && body.length > 0)
+                        ? BodyInserters.fromValue(body)
+                        : BodyInserters.empty())
+                // No lanzar excepción en 4xx/5xx
+                .exchangeToMono(resp -> resp.toEntity(byte[].class));
+    }
 
-                                            // Forzar no-cache
-                                            out.setCacheControl("no-store, no-cache, must-revalidate");
-                                            out.setPragma("no-cache");
-                                            out.setExpires(0);
+    private ResponseEntity<byte[]> toClientResponse(RequestContext ctx, ResponseEntity<byte[]> backend) {
+        HttpHeaders out = new HttpHeaders();
+        backend.getHeaders().forEach(out::addAll);
+        removeHopByHop(out);
 
-                                            byte[] respBody = backend.getBody() != null ? backend.getBody() : new byte[0];
-                                            long ms = (System.nanoTime() - t0) / 1_000_000;
-                                            int sc = backend.getStatusCode().value();
+        // No-cache + seguridad
+        out.setCacheControl("no-store, no-cache, must-revalidate");
+        out.setPragma("no-cache");
+        out.setExpires(0);
+        out.set("X-Content-Type-Options", "nosniff");
+        out.set("X-Frame-Options", "DENY");
+        out.set("X-XSS-Protection", "1; mode=block");
+        out.set(RXI, ctx.reqId());
 
-                                            String message = "[{}] <- {} ({} ms, {} bytes)";
-                                            if (sc >= 500) {
-                                                log.error(message, traceId, backend.getStatusCode(), ms, respBody.length);
-                                            } else if (sc >= 400) {
-                                                log.warn(message, traceId, backend.getStatusCode(), ms, respBody.length);
-                                            } else {
-                                                log.info(message, traceId, backend.getStatusCode(), ms, respBody.length);
-                                            }
 
-                                            return ResponseEntity.status(sc).headers(out).body(respBody);
-                                        })
-                        )
-        ).doOnError(e -> log.error("[{}] !! Error: {}", traceId, e.getMessage(), e));
+        byte[] body = requireNonNullElse(backend.getBody(), EMPTY_BYTES);
+        int sc = backend.getStatusCode().value();
+        long ms = (System.nanoTime() - ctx.startNanos()) / 1_000_000;
+
+        String msg = "[{}:{}] <- {} ({} bytes) in {} ms";
+        if (sc >= 500)      log.error(msg, ctx.traceId(), ctx.reqId(), backend.getStatusCode(), body.length, ms);
+        else if (sc >= 400) log.warn (msg, ctx.traceId(), ctx.reqId(), backend.getStatusCode(), body.length, ms);
+        else                log.info (msg, ctx.traceId(), ctx.reqId(), backend.getStatusCode(), body.length, ms);
+
+        return ResponseEntity.status(sc).headers(out).body(body);
+    }
+
+
+    private boolean requiresBody(HttpMethod method) {
+        return method == HttpMethod.POST
+                || method == HttpMethod.PUT
+                || method == HttpMethod.PATCH
+                || method == HttpMethod.DELETE;
     }
 
     private void removeHopByHop(HttpHeaders headers) {
@@ -123,10 +163,24 @@ public class ProxyService {
         if (vals != null && !vals.isEmpty()) dst.addAll(name, vals);
     }
 
-    private boolean requiresBody(HttpMethod method) {
-        return method == HttpMethod.POST
-                || method == HttpMethod.PUT
-                || method == HttpMethod.PATCH
-                || method == HttpMethod.DELETE;
+    private HttpHeaders sanitizeHeaders(HttpHeaders src) {
+        HttpHeaders safe = new HttpHeaders();
+        src.forEach((k, v) -> {
+            if (HttpHeaders.AUTHORIZATION.equalsIgnoreCase(k)) {
+                safe.add(k, "***");
+            } else {
+                safe.addAll(k, v);
+            }
+        });
+        return safe;
     }
+
+    private record RequestContext(
+            String traceId,
+            String reqId,
+            HttpMethod method,
+            String targetUrl,
+            HttpHeaders inHeaders,
+            long startNanos
+    ) {}
 }
