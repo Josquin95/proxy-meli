@@ -1,0 +1,15 @@
+server:
+  port: 8080
+
+backend:
+  base-url: https://api.mercadolibre.com
+
+management:
+  endpoints.web.exposure.include: health,info,prometheus
+
+proxy:
+  max-redirects: 5
+  rate-limits:
+    ip-per-minute: 1000
+    categories-per-minute: 10000
+    items-ip-per-minute: 10
