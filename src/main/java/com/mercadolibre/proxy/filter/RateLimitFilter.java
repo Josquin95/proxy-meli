@@ -3,6 +3,7 @@ package com.mercadolibre.proxy.filter;
 import com.mercadolibre.proxy.config.RateLimiterProperties;
 import io.github.bucket4j.Bandwidth;
 import io.github.bucket4j.Bucket;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
@@ -30,12 +31,17 @@ public class RateLimitFilter implements WebFilter {
 
     private final RateLimiterProperties props;
 
+    private final MeterRegistry meter;
+
+    private static final String PROXY_RATE_LIMIT_METRIC = "proxy.ratelimit.blocked";
+
     private final Map<String, Bucket> ipBuckets = new ConcurrentHashMap<>();
     private final Map<String, Bucket> categoriesBuckets = new ConcurrentHashMap<>();
     private final Map<String, Bucket> itemsIpBuckets = new ConcurrentHashMap<>();
 
-    public RateLimitFilter(RateLimiterProperties props) {
+    public RateLimitFilter(RateLimiterProperties props, MeterRegistry meter) {
         this.props = props;
+        this.meter = meter;
     }
 
     @Override
@@ -46,6 +52,7 @@ public class RateLimitFilter implements WebFilter {
         // 1) Límite por IP (1000/min)
         Bucket ipBucket = ipBuckets.computeIfAbsent(clientIp, k -> newBucket(props.ipPerMinute(), Duration.ofMinutes(1)));
         if (!ipBucket.tryConsume(1)) {
+            meter.counter(PROXY_RATE_LIMIT_METRIC, "rule", "ip").increment();
             exchange.getResponse().setStatusCode(HttpStatus.TOO_MANY_REQUESTS);
             return exchange.getResponse().setComplete();
         }
@@ -54,6 +61,7 @@ public class RateLimitFilter implements WebFilter {
         if (path.startsWith("/categories")) {
             Bucket catBucket = categoriesBuckets.computeIfAbsent("categories", k -> newBucket(props.categoriesPerMinute(), Duration.ofMinutes(1)));
             if (!catBucket.tryConsume(1)) {
+                meter.counter(PROXY_RATE_LIMIT_METRIC, "rule", "categories").increment();
                 exchange.getResponse().setStatusCode(HttpStatus.TOO_MANY_REQUESTS);
                 return exchange.getResponse().setComplete();
             }
@@ -64,6 +72,7 @@ public class RateLimitFilter implements WebFilter {
             String key = clientIp + ":/items";
             Bucket itemsBucket = itemsIpBuckets.computeIfAbsent(key, k -> newBucket(props.itemsIpPerMinute(), Duration.ofMinutes(1)));
             if (!itemsBucket.tryConsume(1)) {
+                meter.counter(PROXY_RATE_LIMIT_METRIC, "rule", "items_ip").increment();
                 exchange.getResponse().setStatusCode(HttpStatus.TOO_MANY_REQUESTS);
                 return exchange.getResponse().setComplete();
             }

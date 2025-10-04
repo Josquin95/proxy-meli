@@ -12,11 +12,34 @@ proxy:
     categories-per-minute: ${CATEGORIES_PER_MINUTE:10000}
     items-ip-per-minute: ${ITEMS_IP_PER_MINUTE:10}
 
+resilience4j:
+  circuitbreaker:
+    instances:
+      meliBackend:
+        slidingWindowType: COUNT_BASED
+        slidingWindowSize: 50
+        failureRateThreshold: 50
+        slowCallDurationThreshold: 2s
+        slowCallRateThreshold: 50
+        permittedNumberOfCallsInHalfOpenState: 5
+        waitDurationInOpenState: 30s
+  timelimiter:
+    instances:
+      meliBackend:
+        timeoutDuration: 3s
+
 management:
   endpoints:
     web:
       exposure:
         include: health,info,prometheus
+  metrics:
+    tags:
+      application: proxy-meli
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+        http.client.requests: true
   endpoint:
     health:
       show-details: never

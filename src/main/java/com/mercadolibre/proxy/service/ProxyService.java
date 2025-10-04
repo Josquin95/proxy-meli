@@ -13,6 +13,12 @@ import org.springframework.web.reactive.function.BodyInserters;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
+import io.github.resilience4j.circuitbreaker.CircuitBreaker;
+import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
+import io.github.resilience4j.reactor.circuitbreaker.operator.CircuitBreakerOperator;
+import io.github.resilience4j.reactor.timelimiter.TimeLimiterOperator;
+import io.github.resilience4j.timelimiter.TimeLimiter;
+import io.github.resilience4j.timelimiter.TimeLimiterRegistry;
 
 import java.net.URI;
 import java.util.List;
@@ -31,24 +37,36 @@ public class ProxyService {
     private static final byte[] EMPTY_BYTES = new byte[0];
 
     private final WebClient webClient;
+    private final CircuitBreaker cb;
+    private final TimeLimiter tl;
+
 
     @Value("${backend.base-url}")
     private String backendBaseUrl;
 
-    public ProxyService(WebClient webClient) {
+    public ProxyService(WebClient webClient,
+                        CircuitBreakerRegistry cbRegistry,
+                        TimeLimiterRegistry tlRegistry) {
         this.webClient = webClient;
+        this.cb = cbRegistry.circuitBreaker("meliBackend");
+        this.tl = tlRegistry.timeLimiter("meliBackend");
     }
 
     public Mono<ResponseEntity<byte[]>> forwardRequest(ServerWebExchange exchange) {
         RequestContext ctx = createContext(exchange);
-
         HttpHeaders outbound = buildOutboundHeaders(ctx);
         Mono<byte[]> bodyMono = readBody(exchange);
 
         return bodyMono
-                .flatMap(body -> sendToBackend(ctx, outbound, body))
+                .flatMap(body -> protect(sendToBackend(ctx, outbound, body)))
                 .map(backend -> toClientResponse(ctx, backend))
                 .doOnError(e -> log.error("[{}:{}] !! Transport error: {}", ctx.traceId(), ctx.reqId(), e.toString(), e));
+    }
+
+    private Mono<ResponseEntity<byte[]>> protect(Mono<ResponseEntity<byte[]>> mono) {
+        return mono
+                .transformDeferred(TimeLimiterOperator.of(tl))
+                .transformDeferred(CircuitBreakerOperator.of(cb));
     }
 
     private RequestContext createContext(ServerWebExchange exchange) {
@@ -108,7 +126,6 @@ public class ProxyService {
                 .body((requiresBody(ctx.method()) && body.length > 0)
                         ? BodyInserters.fromValue(body)
                         : BodyInserters.empty())
-                // No lanzar excepción en 4xx/5xx
                 .exchangeToMono(resp -> resp.toEntity(byte[].class));
     }
 
@@ -117,7 +134,6 @@ public class ProxyService {
         backend.getHeaders().forEach(out::addAll);
         removeHopByHop(out);
 
-        // No-cache + seguridad
         out.setCacheControl("no-store, no-cache, must-revalidate");
         out.setPragma("no-cache");
         out.setExpires(0);
@@ -125,7 +141,6 @@ public class ProxyService {
         out.set("X-Frame-Options", "DENY");
         out.set("X-XSS-Protection", "1; mode=block");
         out.set(RXI, ctx.reqId());
-
 
         byte[] body = requireNonNullElse(backend.getBody(), EMPTY_BYTES);
         int sc = backend.getStatusCode().value();
