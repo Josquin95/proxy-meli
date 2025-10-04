@@ -28,9 +28,6 @@ public class ProxyService {
     @Value("${backend.base-url}")
     private String backendBaseUrl;
 
-    @Value("${proxy.max-redirects:5}")
-    private int maxRedirects;
-
     public ProxyService(WebClient webClient) {
         this.webClient = webClient;
     }
@@ -39,7 +36,7 @@ public class ProxyService {
         String traceId = UUID.randomUUID().toString().substring(0, 8);
         final long t0 = System.nanoTime();
 
-        String rawPath  = exchange.getRequest().getURI().getRawPath();
+        String rawPath = exchange.getRequest().getURI().getRawPath();
         String rawQuery = exchange.getRequest().getURI().getRawQuery();
         String targetUrl = backendBaseUrl + rawPath + (rawQuery != null ? "?" + rawQuery : "");
 
@@ -76,28 +73,37 @@ public class ProxyService {
                 webClient.method(method)
                         .uri(URI.create(targetUrl))
                         .headers(h -> h.addAll(outbound))
-                        .body((requiresBody(method) && body.length > 0) ? BodyInserters.fromValue(body) : BodyInserters.empty())
-                        .retrieve()
-                        .toEntity(byte[].class)
-                        .map(backendEntity -> {
-                            HttpHeaders out = new HttpHeaders();
-                            backendEntity.getHeaders().forEach(out::addAll);
-                            removeHopByHop(out);
+                        .body((requiresBody(method) && body.length > 0)
+                                ? BodyInserters.fromValue(body)
+                                : BodyInserters.empty())
+                        .exchangeToMono(resp ->
+                                resp.toEntity(byte[].class) // NO lanza excepción en 4xx/5xx
+                                        .map(backend -> {
+                                            HttpHeaders out = new HttpHeaders();
+                                            backend.getHeaders().forEach(out::addAll);
+                                            removeHopByHop(out);
 
-                            out.setCacheControl("no-store, no-cache, must-revalidate");
-                            out.setPragma("no-cache");
-                            out.setExpires(0);
+                                            // Forzar no-cache
+                                            out.setCacheControl("no-store, no-cache, must-revalidate");
+                                            out.setPragma("no-cache");
+                                            out.setExpires(0);
 
-                            byte[] respBody = backendEntity.getBody() != null ? backendEntity.getBody() : new byte[0];
+                                            byte[] respBody = backend.getBody() != null ? backend.getBody() : new byte[0];
+                                            long ms = (System.nanoTime() - t0) / 1_000_000;
+                                            int sc = backend.getStatusCode().value();
 
-                            long ms = (System.nanoTime() - t0) / 1_000_000;
-                            log.info("[{}] <- {} ({} bytes) in {} ms", traceId, backendEntity.getStatusCode(), respBody.length, ms);
+                                            String message = "[{}] <- {} ({} ms, {} bytes)";
+                                            if (sc >= 500) {
+                                                log.error(message, traceId, backend.getStatusCode(), ms, respBody.length);
+                                            } else if (sc >= 400) {
+                                                log.warn(message, traceId, backend.getStatusCode(), ms, respBody.length);
+                                            } else {
+                                                log.info(message, traceId, backend.getStatusCode(), ms, respBody.length);
+                                            }
 
-                            return ResponseEntity
-                                    .status(backendEntity.getStatusCode().value())
-                                    .headers(out)
-                                    .body(respBody);
-                        })
+                                            return ResponseEntity.status(sc).headers(out).body(respBody);
+                                        })
+                        )
         ).doOnError(e -> log.error("[{}] !! Error: {}", traceId, e.getMessage(), e));
     }
 

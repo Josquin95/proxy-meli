@@ -1,15 +1,44 @@
 server:
   port: 8080
+  forward-headers-strategy: framework
 
 backend:
-  base-url: https://api.mercadolibre.com
-
-management:
-  endpoints.web.exposure.include: health,info,prometheus
+  base-url: ${BACKEND_BASE_URL:https://api.mercadolibre.com}
 
 proxy:
-  max-redirects: 5
-  rate-limits:
-    ip-per-minute: 1000
-    categories-per-minute: 10000
-    items-ip-per-minute: 10
+  rate-limiter:
+    backend: ${RATE_LIMIT_BACKEND:memory}
+    ip-per-minute: ${IP_PER_MINUTE:1000}
+    categories-per-minute: ${CATEGORIES_PER_MINUTE:10000}
+    items-ip-per-minute: ${ITEMS_IP_PER_MINUTE:10}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      show-details: never
+
+logging:
+  level:
+    root: INFO
+    reactor.netty: WARN
+    org.springframework.web: INFO
+    com.mercadolibre.proxy: INFO
+
+---
+spring:
+  config:
+    activate:
+      on-profile: redis
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      # password: ${REDIS_PASSWORD:}
+
+proxy:
+  rate-limiter:
+    backend: redis

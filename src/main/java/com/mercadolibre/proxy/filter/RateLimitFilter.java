@@ -1,8 +1,9 @@
 package com.mercadolibre.proxy.filter;
 
+import com.mercadolibre.proxy.config.RateLimiterProperties;
 import io.github.bucket4j.Bandwidth;
 import io.github.bucket4j.Bucket;
-import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
@@ -23,22 +24,19 @@ import java.util.concurrent.ConcurrentHashMap;
  *  - /categories/*: 10000/min (global, configurable)
  *  - IP + /items/*: 10/min (configurable)
  */
+@ConditionalOnProperty(name = "proxy.rate-limiter.backend", havingValue = "memory", matchIfMissing = true)
 @Component
 public class RateLimitFilter implements WebFilter {
 
-    // Puedes parametrizar estos números desde application.yml
-    @Value("${proxy.rate-limits.ip-per-minute:1000}")
-    private int ipPerMinute;
-
-    @Value("${proxy.rate-limits.categories-per-minute:10000}")
-    private int categoriesPerMinute;
-
-    @Value("${proxy.rate-limits.items-ip-per-minute:10}")
-    private int itemsIpPerMinute;
+    private final RateLimiterProperties props;
 
     private final Map<String, Bucket> ipBuckets = new ConcurrentHashMap<>();
     private final Map<String, Bucket> categoriesBuckets = new ConcurrentHashMap<>();
     private final Map<String, Bucket> itemsIpBuckets = new ConcurrentHashMap<>();
+
+    public RateLimitFilter(RateLimiterProperties props) {
+        this.props = props;
+    }
 
     @Override
     public Mono<Void> filter(ServerWebExchange exchange, WebFilterChain chain) {
@@ -46,7 +44,7 @@ public class RateLimitFilter implements WebFilter {
         final String path = exchange.getRequest().getURI().getPath();
 
         // 1) Límite por IP (1000/min)
-        Bucket ipBucket = ipBuckets.computeIfAbsent(clientIp, k -> newBucket(ipPerMinute, Duration.ofMinutes(1)));
+        Bucket ipBucket = ipBuckets.computeIfAbsent(clientIp, k -> newBucket(props.ipPerMinute(), Duration.ofMinutes(1)));
         if (!ipBucket.tryConsume(1)) {
             exchange.getResponse().setStatusCode(HttpStatus.TOO_MANY_REQUESTS);
             return exchange.getResponse().setComplete();
@@ -54,7 +52,7 @@ public class RateLimitFilter implements WebFilter {
 
         // 2) Límite global por path /categories/*
         if (path.startsWith("/categories")) {
-            Bucket catBucket = categoriesBuckets.computeIfAbsent("categories", k -> newBucket(categoriesPerMinute, Duration.ofMinutes(1)));
+            Bucket catBucket = categoriesBuckets.computeIfAbsent("categories", k -> newBucket(props.categoriesPerMinute(), Duration.ofMinutes(1)));
             if (!catBucket.tryConsume(1)) {
                 exchange.getResponse().setStatusCode(HttpStatus.TOO_MANY_REQUESTS);
                 return exchange.getResponse().setComplete();
@@ -64,20 +62,16 @@ public class RateLimitFilter implements WebFilter {
         // 3) Límite por IP + path /items/*
         if (path.startsWith("/items")) {
             String key = clientIp + ":/items";
-            Bucket itemsBucket = itemsIpBuckets.computeIfAbsent(key, k -> newBucket(itemsIpPerMinute, Duration.ofMinutes(1)));
+            Bucket itemsBucket = itemsIpBuckets.computeIfAbsent(key, k -> newBucket(props.itemsIpPerMinute(), Duration.ofMinutes(1)));
             if (!itemsBucket.tryConsume(1)) {
                 exchange.getResponse().setStatusCode(HttpStatus.TOO_MANY_REQUESTS);
                 return exchange.getResponse().setComplete();
             }
         }
-
-        // Si pasa todos los límites, continúa al Controller → Service → WebClient
         return chain.filter(exchange);
     }
 
     private Bucket newBucket(int capacity, Duration window) {
-        // API moderna (sin métodos deprecated):
-        // capacity = tokens del bucket y refillIntervally = reposición en la ventana
         Bandwidth limit = Bandwidth.builder()
                 .capacity(capacity)
                 .refillIntervally(capacity, window)
@@ -89,16 +83,15 @@ public class RateLimitFilter implements WebFilter {
     }
 
     private String extractClientIp(ServerWebExchange exchange) {
-        // Intentar X-Forwarded-For si vienes detrás de un proxy/ingress
+        return getXForwardedFor(exchange);
+    }
+
+    static String getXForwardedFor(ServerWebExchange exchange) {
         String xff = exchange.getRequest().getHeaders().getFirst("X-Forwarded-For");
         if (StringUtils.hasText(xff)) {
-            // Toma el primero de la lista
             String first = xff.split(",")[0].trim();
-            if (StringUtils.hasText(first)) {
-                return first;
-            }
+            if (StringUtils.hasText(first)) return first;
         }
-        // Fallback a la IP del socket
         InetSocketAddress remote = exchange.getRequest().getRemoteAddress();
         if (remote != null && remote.getAddress() != null) {
             return remote.getAddress().getHostAddress();

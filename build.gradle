@@ -23,13 +23,13 @@ dependencies {
     // --- Core Spring ---
     implementation 'org.springframework.boot:spring-boot-starter-webflux'
     implementation 'io.projectreactor.netty:reactor-netty-http'
+    implementation 'org.springframework.boot:spring-boot-starter-validation'
 
-    // --- Métricas ---
-    implementation 'io.micrometer:micrometer-registry-prometheus'
+    annotationProcessor 'org.springframework.boot:spring-boot-configuration-processor'
 
     // --- Rate limiting (lo usaremos luego con Redis + Resilience4j) ---
     implementation 'com.bucket4j:bucket4j-core:8.10.1'
-    //implementation 'org.springframework.boot:spring-boot-starter-data-redis-reactive'
+    implementation 'org.springframework.boot:spring-boot-starter-data-redis-reactive'
     implementation 'io.github.resilience4j:resilience4j-spring-boot3:2.2.0'
 
     // --- Observabilidad y métricas ---
