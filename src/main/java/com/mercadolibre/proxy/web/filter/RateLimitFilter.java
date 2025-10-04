@@ -1,4 +1,4 @@
-package com.mercadolibre.proxy.filter;
+package com.mercadolibre.proxy.web.filter;
 
 import com.mercadolibre.proxy.config.RateLimiterProperties;
 import io.github.bucket4j.Bandwidth;
@@ -25,7 +25,7 @@ import java.util.concurrent.ConcurrentHashMap;
  *  - /categories/*: 10000/min (global, configurable)
  *  - IP + /items/*: 10/min (configurable)
  */
-@ConditionalOnProperty(name = "proxy.rate-limiter.backend", havingValue = "memory", matchIfMissing = true)
+@ConditionalOnProperty(name="proxy.rate-limiter.backend", havingValue="memory", matchIfMissing=true)
 @Component
 public class RateLimitFilter implements WebFilter {
 

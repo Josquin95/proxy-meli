@@ -5,6 +5,12 @@ server:
 backend:
   base-url: ${BACKEND_BASE_URL:https://api.mercadolibre.com}
 
+forwarding:
+  logging-enabled: true
+  resilience:
+    enabled: true
+    instance-name: meliBackend
+
 proxy:
   rate-limiter:
     backend: ${RATE_LIMIT_BACKEND:memory}
@@ -65,7 +71,6 @@ spring:
     redis:
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
-      # password: ${REDIS_PASSWORD:}
 
 proxy:
   rate-limiter:

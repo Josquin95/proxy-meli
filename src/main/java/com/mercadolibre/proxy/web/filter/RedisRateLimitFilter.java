@@ -1,4 +1,4 @@
-package com.mercadolibre.proxy.filter;
+package com.mercadolibre.proxy.web.filter;
 
 import com.mercadolibre.proxy.config.RateLimiterProperties;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -13,10 +13,10 @@ import reactor.core.publisher.Mono;
 
 import java.util.Collections;
 
-import static com.mercadolibre.proxy.filter.RateLimitFilter.getXForwardedFor;
+import static com.mercadolibre.proxy.web.filter.RateLimitFilter.getXForwardedFor;
 
 @Component
-@ConditionalOnProperty(name = "proxy.rate-limiter.backend", havingValue = "redis")
+@ConditionalOnProperty(name="proxy.rate-limiter.backend", havingValue="redis")
 public class RedisRateLimitFilter implements WebFilter {
 
     private final RateLimiterProperties props;
