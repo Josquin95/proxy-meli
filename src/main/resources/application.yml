@@ -17,11 +17,6 @@ proxy:
     ip-per-minute: ${IP_PER_MINUTE:1000}
     categories-per-minute: ${CATEGORIES_PER_MINUTE:10000}
     items-ip-per-minute: ${ITEMS_IP_PER_MINUTE:10}
-    extra:
-      ip-path-token:
-        enabled: false
-      ip-path-method:
-        enabled: false
 
 resilience4j:
   circuitbreaker:

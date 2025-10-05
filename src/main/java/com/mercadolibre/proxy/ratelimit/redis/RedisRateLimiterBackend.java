@@ -8,8 +8,6 @@ import reactor.core.publisher.Mono;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
-import java.util.List;
-
 /**
  * Fixed-window por clave + ventana; estricto con Lua (no hay sobre-consumo).
  * Clave real: "rl:{key}:{windowStartMs}"
@@ -62,7 +60,7 @@ public class RedisRateLimiterBackend implements RateLimiterBackend {
 
         return redis.execute(conn -> conn.scriptingCommands()
                         .eval(ByteBuffer.wrap(SCRIPT.getBytes(StandardCharsets.UTF_8)),
-                                ReturnType.INTEGER, 1, (ByteBuffer) List.of(k), (ByteBuffer) List.of(a1, a2, a3)))
+                                ReturnType.INTEGER, 1, k, a1, a2, a3))
                 .single()
                 .map(res -> {
                     if (res == null) return false;
