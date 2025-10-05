@@ -80,7 +80,7 @@ public class RateLimitConfig {
     }
 
     @Bean
-    public RateLimitEngineFilter rateLimitEngineFilter(List<RateLimitRule> rules) {
-        return new RateLimitEngineFilter(rules);
+    public RateLimitEngineFilter rateLimitEngineFilter(List<RateLimitRule> rules, com.mercadolibre.proxy.metrics.ProxyMetrics metrics) {
+        return new RateLimitEngineFilter(rules, metrics);
     }
 }

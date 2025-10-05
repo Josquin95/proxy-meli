@@ -1,5 +1,6 @@
 package com.mercadolibre.proxy.web.filter;
 
+import com.mercadolibre.proxy.metrics.ProxyMetrics;
 import com.mercadolibre.proxy.ratelimit.core.Decision;
 import com.mercadolibre.proxy.ratelimit.core.RateLimitRule;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -16,9 +17,11 @@ import java.util.List;
 public class RateLimitEngineFilter implements WebFilter, Ordered {
 
     private final List<RateLimitRule> rules;
+    private final ProxyMetrics metrics;
 
-    public RateLimitEngineFilter(List<RateLimitRule> rules) {
+    public RateLimitEngineFilter(List<RateLimitRule> rules, ProxyMetrics metrics) {
         this.rules = rules;
+        this.metrics = metrics;
     }
 
     @Override
@@ -46,6 +49,7 @@ public class RateLimitEngineFilter implements WebFilter, Ordered {
                     ensureCorsHeaders(exchange);
                     resp.setStatusCode(HttpStatus.TOO_MANY_REQUESTS);
                     dec.retryAfterOpt().ifPresent(sec -> resp.getHeaders().set("Retry-After", String.valueOf(sec)));
+                    try { metrics.incrementRateLimitRejection(); } catch (Exception ignore) {}
                     return resp.setComplete();
                 })
                 .switchIfEmpty(chain.filter(exchange));

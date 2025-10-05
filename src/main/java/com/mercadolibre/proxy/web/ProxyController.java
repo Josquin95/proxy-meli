@@ -2,6 +2,8 @@ package com.mercadolibre.proxy.web;
 
 import com.mercadolibre.proxy.application.*;
 import com.mercadolibre.proxy.domain.*;
+import com.mercadolibre.proxy.metrics.ProxyMetrics;
+import io.micrometer.core.instrument.Timer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -15,6 +17,7 @@ import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
 
 import java.net.URI;
+import java.time.Duration;
 import java.util.Objects;
 import java.util.UUID;
 
@@ -28,10 +31,12 @@ public class ProxyController {
     private String backendBaseUrl;
     private final ForwardingService forwarding;
     private final HeaderPolicy headerPolicy;
+    private final ProxyMetrics metrics;
 
-    public ProxyController(ForwardingService forwarding, HeaderPolicy headerPolicy) {
+    public ProxyController(ForwardingService forwarding, HeaderPolicy headerPolicy, ProxyMetrics metrics) {
         this.forwarding = forwarding;
         this.headerPolicy = headerPolicy;
+        this.metrics = metrics;
     }
 
     @RequestMapping("/**")
@@ -43,6 +48,10 @@ public class ProxyController {
             return Mono.just(ResponseEntity.ok().body(new byte[0]));
         }
 
+        // Metrics: record request and duration
+        metrics.recordRequest(ctx.method().name());
+        Timer.Sample sample = metrics.startRequest();
+
         return body(ex)
                 .map(b -> new ForwardRequest(
                         URI.create(ctx.targetUrl()),
@@ -52,6 +61,11 @@ public class ProxyController {
                 ))
                 .flatMap(req -> forwarding.forward(req, ctx))
                 .flatMap(res -> {
+                    // Metrics: stop timer and record response counters
+                    try {
+                        metrics.recordDurationWithSample(sample, res.status());
+                    } catch (Exception ignore) { }
+
                     // Si algún filtro (p.ej. rate limit) ya escribió, no intentes escribir de nuevo
                     if (ex.getResponse().isCommitted()) {
                         log.warn("[{}:{}] response already committed with status={}, skipping handler write",
