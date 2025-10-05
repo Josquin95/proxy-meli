@@ -19,6 +19,8 @@ help:
 	@echo "  make run-redis       -> Ejecuta contenedor usando Redis (SPRING_PROFILES_ACTIVE=redis)"
 	@echo "  make compose-up      -> Levanta Redis (docker-compose.yml)"
 	@echo "  make compose-down    -> Baja Redis"
+	@echo "  make obs-up          -> Levanta Prometheus y Grafana (observability/docker-compose.yml)"
+	@echo "  make obs-down        -> Baja Prometheus y Grafana"
 	@echo "  make smoke           -> Pruebas rápidas (healthz y categoria)"
 	@echo "  make logs            -> Logs del último contenedor ejecutado"
 	@echo "  make clean           -> Limpia build Gradle"
@@ -34,7 +36,9 @@ build:
 # Ejecuta la app con rate limit in-memory
 .PHONY: run
 run:
-	docker run --rm -p $(PORT):$(PORT) \
+	docker run --rm \
+	  -p $(PORT):$(PORT) \
+	  -p 9091:9091 \
 	  -e SERVER_PORT=$(PORT) \
 	  -e BACKEND_BASE_URL=$(BACKEND_URL) \
 	  -e RATE_LIMIT_BACKEND=$(RL_BACKEND) \
@@ -43,7 +47,9 @@ run:
 # Ejecuta la app contra Redis (requiere compose-up o un Redis accesible)
 .PHONY: run-redis
 run-redis:
-	docker run --rm -p $(PORT):$(PORT) \
+	docker run --rm \
+	  -p $(PORT):$(PORT) \
+	  -p 9091:9091 \
 	  -e SERVER_PORT=$(PORT) \
 	  -e SPRING_PROFILES_ACTIVE=redis \
 	  -e BACKEND_BASE_URL=$(BACKEND_URL) \
@@ -59,6 +65,14 @@ compose-up:
 .PHONY: compose-down
 compose-down:
 	docker compose down
+
+# Levanta / baja Prometheus y Grafana (observability/docker-compose.yml)
+.PHONY: obs-up
+obs-up:
+	docker compose -f observability/docker-compose.yml up -d
+.PHONY: obs-down
+obs-down:
+	docker compose -f observability/docker-compose.yml down
 
 # Smoke tests rápidos
 .PHONY: smoke

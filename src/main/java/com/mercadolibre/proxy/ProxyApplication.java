@@ -10,6 +10,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 public class ProxyApplication {
 
     public static void main(String[] args) {
+        System.setProperty("management.server.port", "9091");
         SpringApplication.run(ProxyApplication.class, args);
     }
 }

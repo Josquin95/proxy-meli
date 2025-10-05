@@ -5,4 +5,4 @@ scrape_configs:
   - job_name: "proxy-meli"
     metrics_path: /actuator/prometheus
     static_configs:
-      - targets: ["host.docker.internal:8080"]  # o "proxy:8080" si corre en la misma red de docker
+      - targets: ["host.docker.internal:9091"]

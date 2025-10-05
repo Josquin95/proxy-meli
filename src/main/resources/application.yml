@@ -35,15 +35,23 @@ resilience4j:
         timeoutDuration: 3s
 
 management:
+  server:
+    port: 9091
+    address: 0.0.0.0
   endpoints:
     web:
+      base-path: /actuator
       exposure:
-        include: health,info,prometheus
+        include: health,info,prometheus,proxystats
+  endpoint:
+    health:
+      show-details: never
   metrics:
     distribution:
       percentiles-histogram:
         http.server.requests: true
         http.client.requests: true
+
 
 spring:
   http:
