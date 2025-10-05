@@ -17,6 +17,11 @@ proxy:
     ip-per-minute: ${IP_PER_MINUTE:1000}
     categories-per-minute: ${CATEGORIES_PER_MINUTE:10000}
     items-ip-per-minute: ${ITEMS_IP_PER_MINUTE:10}
+    extra:
+      ip-path-token:
+        enabled: false
+      ip-path-method:
+        enabled: false
 
 resilience4j:
   circuitbreaker:
@@ -40,22 +45,10 @@ management:
       exposure:
         include: health,info,prometheus
   metrics:
-    tags:
-      application: proxy-meli
     distribution:
       percentiles-histogram:
         http.server.requests: true
         http.client.requests: true
-  endpoint:
-    health:
-      show-details: never
-
-logging:
-  level:
-    root: INFO
-    reactor.netty: WARN
-    org.springframework.web: INFO
-    com.mercadolibre.proxy: INFO
 
 spring:
   http:
@@ -71,7 +64,6 @@ spring:
     redis:
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
-
 proxy:
   rate-limiter:
     backend: redis
