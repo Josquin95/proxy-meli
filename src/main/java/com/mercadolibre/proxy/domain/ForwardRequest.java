@@ -10,4 +10,5 @@ public record ForwardRequest(
         HttpMethod method,
         HttpHeaders headers,
         byte[] body
-) {}
+) {
+}

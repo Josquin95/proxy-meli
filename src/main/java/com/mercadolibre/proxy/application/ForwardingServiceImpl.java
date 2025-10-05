@@ -32,9 +32,10 @@ public class ForwardingServiceImpl implements ForwardingService {
                     var body = raw.body() != null ? raw.body() : EMPTY;
                     long ms = (System.nanoTime() - t0) / 1_000_000;
                     String pat = "[{}:{}] <- {} ({} bytes) in {} ms";
-                    if (raw.status() >= 500)      log.error(pat, ctx.traceId(), ctx.reqId(), raw.status(), body.length, ms);
-                    else if (raw.status() >= 400) log.warn (pat, ctx.traceId(), ctx.reqId(), raw.status(), body.length, ms);
-                    else                          log.info (pat, ctx.traceId(), ctx.reqId(), raw.status(), body.length, ms);
+                    if (raw.status() >= 500) log.error(pat, ctx.traceId(), ctx.reqId(), raw.status(), body.length, ms);
+                    else if (raw.status() >= 400)
+                        log.warn(pat, ctx.traceId(), ctx.reqId(), raw.status(), body.length, ms);
+                    else log.info(pat, ctx.traceId(), ctx.reqId(), raw.status(), body.length, ms);
                     return new ForwardResponse(raw.status(), clientHeaders, body);
                 });
     }

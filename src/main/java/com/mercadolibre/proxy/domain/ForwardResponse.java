@@ -6,4 +6,5 @@ public record ForwardResponse(
         int status,
         HttpHeaders headers,
         byte[] body
-) {}
+) {
+}

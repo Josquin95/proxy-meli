@@ -2,7 +2,7 @@ version: "3.9"
 services:
   redis:
     image: redis:7-alpine
-    container_name: mvz-proxy-redis
+    container_name: meli-proxy-redis
     command: ["redis-server", "--appendonly", "yes"]
     ports:
       - "6379:6379"

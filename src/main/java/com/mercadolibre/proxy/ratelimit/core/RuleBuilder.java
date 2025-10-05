@@ -30,9 +30,15 @@ public final class RuleBuilder {
 
         return (ServerWebExchange ex) -> {
             if (!cond.test(ex)) return Mono.just(Decision.allow());
+
+            long now = System.currentTimeMillis();
+            long windowMs = lim.window().toMillis();
+            long remainingMs = windowMs - (now % windowMs);
+            int retrySec = (int) Math.ceil(remainingMs / 1000.0);
+
             String key = rn + ":" + kg.key(ex);
             return backend.tryConsume(key, 1, lim)
-                    .map(ok -> ok ? Decision.allow() : Decision.block(rn, 60)); // Retry-After opcional
+                    .map(ok -> ok ? Decision.allow() : Decision.block(rn, retrySec));
         };
     }
 }

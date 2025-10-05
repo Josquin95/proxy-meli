@@ -7,5 +7,6 @@ public record ForwardingFeaturesProperties(
         boolean loggingEnabled,
         Resilience resilience
 ) {
-    public record Resilience(boolean enabled, String instanceName) {}
+    public record Resilience(boolean enabled, String instanceName) {
+    }
 }

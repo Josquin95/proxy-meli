@@ -12,4 +12,5 @@ public record RateLimiterProperties(
         @Min(1) int ipPerMinute,               // límite por IP
         @Min(1) int categoriesPerMinute,       // límite global /categories/*
         @Min(1) int itemsIpPerMinute           // límite por IP + /items/*
-) {}
+) {
+}

@@ -8,7 +8,6 @@ import io.github.resilience4j.reactor.timelimiter.TimeLimiterOperator;
 import io.github.resilience4j.timelimiter.TimeLimiter;
 import reactor.core.publisher.Mono;
 
-/** Decorator: agrega resiliencia alrededor del gateway real */
 public class ResilientHttpClientGateway implements HttpClientGateway {
 
     private final HttpClientGateway delegate;

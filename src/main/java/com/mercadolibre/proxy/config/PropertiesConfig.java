@@ -8,4 +8,5 @@ import org.springframework.context.annotation.Configuration;
         ForwardingFeaturesProperties.class,
         RateLimiterProperties.class
 })
-public class PropertiesConfig {}
+public class PropertiesConfig {
+}
