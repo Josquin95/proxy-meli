@@ -30,6 +30,8 @@ Está orientado a alta concurrencia y baja latencia, integrando back-pressure na
    └── [ForwardingService] ──► [WebClient] ──► [Backend API]
 ```
 
+![arquitectura_proxy_meli.png](docs/diagramas/arquitectura_proxy_meli.png)
+
 ## Componentes clave (código)
 
 - web/ProxyController: entrada HTTP del proxy.
